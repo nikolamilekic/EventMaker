@@ -146,7 +146,7 @@ let getEventsFromFacebook facebookPath = async {
 }
 
 let getEventsFromPrevious (raw : string) =
-    raw.Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries)
+    raw.Split("\n", StringSplitOptions.RemoveEmptyEntries)
     |> Seq.map (fun l ->
         let nameDateSplit = l.Split(';')
         let n = nameDateSplit.[0]
@@ -185,7 +185,6 @@ let run config previous startDate endDate = async {
         |> Seq.map (fun (_, g) -> g |> Seq.sort |> Seq.last)
         |> Seq.sortBy (fun (_, m, d, _) -> m, d)
         |> List.ofSeq
-
 
     let state =
         complete
