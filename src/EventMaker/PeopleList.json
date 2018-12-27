@@ -1,0 +1,76 @@
+{
+    "connections": [
+        {
+            "names": [
+                {
+                    "displayName": "Display name",
+                    "familyName": "Family name",
+                    "givenName": "Given name",
+                    "displayNameLastFirst": "displayNameLastFirst"
+                }
+            ],
+            "birthdays": [
+                {
+                    "date": {
+                        "month": 11,
+                        "day": 26
+                    },
+                    "text": "November 26"
+                }
+            ],
+            "events": [
+                {
+                    "date": {
+                        "year": 1604,
+                        "month": 4,
+                        "day": 29
+                    },
+                    "type": "anniversary",
+                    "formattedType": "Anniversary"
+                }
+            ]
+        },
+        {
+            "names": [
+                {
+                    "displayName": "Display name",
+                    "familyName": "Family name",
+                    "givenName": "Given name",
+                    "displayNameLastFirst": "displayNameLastFirst"
+                }
+            ]
+        },
+        {
+            "names": [
+                {
+                    "displayName": "Display name",
+                    "familyName": "Family name",
+                    "givenName": "Given name",
+                    "displayNameLastFirst": "displayNameLastFirst"
+                }
+            ],
+            "birthdays": [
+                {
+                    "date": {
+                        "year": 1604,
+                        "month": 11,
+                        "day": 26
+                    },
+                    "text": "November 26"
+                }
+            ],
+            "events": [
+                {
+                    "date": {
+                        "month": 4,
+                        "day": 29
+                    },
+                    "type": "anniversary",
+                    "formattedType": "Anniversary"
+                }
+            ]
+        }
+    ],
+    "totalPeople": 484,
+    "totalItems": 484
+}

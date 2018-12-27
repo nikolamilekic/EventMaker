@@ -1,0 +1,5 @@
+source https://www.nuget.org/api/v2
+source https://ci.appveyor.com/nuget/milekic-yolo
+
+nuget FSharp.Data
+nuget Milekic.YoLo
