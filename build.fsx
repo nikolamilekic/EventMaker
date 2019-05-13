@@ -3,6 +3,7 @@ nuget Fake.Core.Target
 nuget Fake.DotNet.Cli
 nuget Fake.IO.Zip
 nuget Fake.DotNet.AssemblyInfoFile
+nuget Fake.DotNet.Paket
 nuget FSharp.Data
 nuget FSharp.Core //"
 #load "./.fake/build.fsx/intellisense.fsx"
@@ -24,6 +25,7 @@ let publishPath = binPath </> "publish"
 let zipFileName = "publish.zip"
 let buildNumber = Environment.environVarOrNone "APPVEYOR_BUILD_NUMBER"
 
+Target.create "PaketRestore" <| fun _ -> Paket.restore id
 Target.create "Clean" <| fun _ ->
     Seq.allPairs [|"src"|] [|"bin"; "obj"|]
     |> Seq.collect (fun (x, y) -> !!(sprintf "%s/**/%s" x y))
@@ -85,7 +87,8 @@ Target.create "UpdateAssemblyInfo" <| fun _ ->
 
 Target.create "appveyor" ignore
 
-"Clean"
+"PaketRestore"
+==> "Clean"
 ==> "Build"
 ==> "CopyBuildOutput"
 ==> "Publish"
