@@ -3,3 +3,4 @@ source https://ci.appveyor.com/nuget/milekic-yolo
 
 nuget FSharp.Data
 nuget Milekic.YoLo
+nuget MailKit

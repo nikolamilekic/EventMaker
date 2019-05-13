@@ -2,6 +2,7 @@
 module EventMaker.Functions
 
 open System
+open System.Text
 open System.IO
 open System.Globalization
 open System.Reflection
@@ -13,6 +14,11 @@ open Microsoft.AspNetCore.Http
 open Microsoft.Azure.WebJobs.Hosting
 open Microsoft.Azure.WebJobs.Host.Config
 open Microsoft.Azure.WebJobs.Description
+open MailKit
+open MailKit.Net.Imap
+open MailKit.Net.Smtp
+open MailKit.Search
+open MimeKit
 
 open FSharp.Data
 open Milekic.YoLo
@@ -20,6 +26,12 @@ open Milekic.YoLo
 type Config = {
     FacebookPath : string
     GoogleAccessTokenRequest : HttpRequestBody
+    SmtpServer : string * int
+    ImapServer : string * int
+    EmailCredentials : string * string
+    FromName : string
+    ToNameAndAddress : string * string
+    Subject : string
 }
 
 [<AttributeUsage(AttributeTargets.Parameter, AllowMultiple = true)>]
@@ -37,6 +49,20 @@ type ConfigProvider(configuration : IConfiguration) =
                 "client_id", configuration.["GoogleClientId"]
             ] :> seq<_>
             |> HttpRequestBody.FormValues
+        SmtpServer =
+            configuration.["SmtpServerAddress"],
+            configuration.["SmtpServerPort"] |> int
+        ImapServer =
+            configuration.["ImapServerAddress"],
+            configuration.["ImapServerPort"] |> int
+        EmailCredentials =
+            configuration.["EmailUsername"],
+            configuration.["EmailPassword"]
+        ToNameAndAddress =
+            configuration.["ToName"],
+            configuration.["ToAddress"]
+        FromName = configuration.["FromName"]
+        Subject = configuration.["Subject"]
     }
     interface IExtensionConfigProvider with
         member __.Initialize context =
@@ -217,35 +243,89 @@ let run config previous startDate endDate = async {
     return tasks, state
 }
 
-[<FunctionName("GetTasks")>]
-let getTasks
+let sendTasks config previous (nextState : CloudBlockBlob) = async {
+    let startDate, endDate =
+        let currentTime = DateTime.Now
+        let currentYearStart =
+            let month = DateTime.Now.Month + 1
+            DateTime(currentTime.Year, month, 1)
+        let currentYearEnd = currentYearStart.AddMonths 1
+        if currentYearEnd < currentTime then
+            currentYearStart.AddYears 1,
+            currentYearEnd.AddYears 1
+        else currentYearStart, currentYearEnd
+
+    let! tasks, state = run config previous startDate endDate
+    do! nextState.UploadTextAsync(state) |> Async.AwaitTask
+    let tasks = String.Join(Environment.NewLine, tasks)
+
+    if tasks = "" then () else
+
+    let
+        {
+            SmtpServer = smtpServer
+            ImapServer = imapServer
+            EmailCredentials = username, password
+            FromName = fromName
+            ToNameAndAddress = toAddress
+            Subject = subject
+        } = config
+
+    let from = fromName, username
+    let addressFromTuple (t : string * string) = MailboxAddress (fst t, snd t)
+
+    let bodyBuilder = BodyBuilder()
+
+    bodyBuilder.Attachments.Add("Tasks.taskpaper", Encoding.UTF8.GetBytes(tasks))
+    |> ignore
+
+    let message = MimeMessage(Subject = subject)
+    from |> addressFromTuple |> message.From.Add
+    toAddress |> addressFromTuple |> message.To.Add
+    message.Body <- bodyBuilder.ToMessageBody()
+
+    do! async {
+        use smtpClient = new SmtpClient()
+        do! smtpClient.ConnectAsync(fst smtpServer, snd smtpServer) |> Async.AwaitTask
+        do! smtpClient.AuthenticateAsync(username, password) |> Async.AwaitTask
+        do! smtpClient.SendAsync message |> Async.AwaitTask
+        do! smtpClient.DisconnectAsync true |> Async.AwaitTask
+    }
+
+    do! async {
+        use imapClient = new ImapClient()
+        do! imapClient.ConnectAsync(fst imapServer, snd imapServer)  |> Async.AwaitTask
+        do! imapClient.AuthenticateAsync(username, password) |> Async.AwaitTask
+        let trash = imapClient.GetFolder(SpecialFolder.Trash)
+        let sentFolder = imapClient.GetFolder(SpecialFolder.Sent)
+        let! _ = sentFolder.OpenAsync(FolderAccess.ReadWrite) |> Async.AwaitTask
+        let query = SearchQuery.HeaderContains ("Message-Id", message.MessageId)
+        let! messages = sentFolder.SearchAsync query |> Async.AwaitTask
+        let! _ = sentFolder.MoveToAsync(messages, trash) |> Async.AwaitTask
+        return ()
+    }
+}
+
+[<FunctionName("SendTasks")>]
+let sendTasksImmediately
     (
-        [<HttpTrigger(AuthorizationLevel.Function, "get", Route = "events/{month}")>]
+        [<HttpTrigger(AuthorizationLevel.Function, "get")>]
             (request : HttpRequest),
-        month : string,
         [<Config>] config,
         [<Blob("events/Events.txt", FileAccess.Read)>] previous,
-        [<Blob("events/Events.txt", FileAccess.Write)>] (nextState : CloudBlockBlob)
+        [<Blob("events/Events.txt", FileAccess.Write)>] nextState
     ) =
-    async {
-        let startDate, endDate =
-            let currentTime = DateTime.Now
-            let currentYearStart =
-                let month = Int32.Parse month
-                if month < 1 then failwith "Month cannot be < 1"
-                if month > 12 then failwith "Month cannot be > 12"
-                DateTime(currentTime.Year, month, 1)
-            let currentYearEnd = currentYearStart.AddMonths 1
-            if currentYearEnd < currentTime then
-                currentYearStart.AddYears 1,
-                currentYearEnd.AddYears 1
-            else currentYearStart, currentYearEnd
+    sendTasks config previous nextState |> Async.StartAsTask
 
-        let! tasks, state = run config previous startDate endDate
-        do! nextState.UploadTextAsync(state) |> Async.AwaitTask
-        return String.Join(Environment.NewLine, tasks)
-    }
-    |> Async.StartAsTask
+[<FunctionName("SendTasksOnSchedule")>]
+let sendTasksOnSchedule
+    (
+        [<TimerTrigger("0 0 0 14 * *")>] (timerInfo : TimerInfo),
+        [<Config>] config,
+        [<Blob("events/Events.txt", FileAccess.Read)>] previous,
+        [<Blob("events/Events.txt", FileAccess.Write)>] nextState
+    ) =
+    sendTasks config previous nextState |> Async.StartAsTask
 
 [<FunctionName("GetVersion")>]
 let getVersion
