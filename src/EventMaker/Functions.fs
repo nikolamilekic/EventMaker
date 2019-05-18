@@ -188,7 +188,7 @@ let getFutureDate (currentTime : DateTime) date =
     then date
     else DateTime(currentTime.Year + 1, date.Month, date.Day)
 
-let run config previous startDate endDate = async {
+let run config previous (startDate : DateTime) (endDate : DateTime) = async {
     let currentTime = DateTime.Now
     let getFutureDate = getFutureDate currentTime
     let! facebookRetriever =
@@ -220,25 +220,32 @@ let run config previous startDate endDate = async {
             | None -> sprintf "%s;%d/%d" n m d)
         |> fun s -> String.Join(Environment.NewLine, s)
 
-    let tasks =
-        complete
-        |> Seq.map (fun (n, m, d, y) ->
-            let date = DateTime(currentTime.Year, m, d) |> getFutureDate
-            let name =
-                match y with
-                | None -> n
-                | Some birthYear ->
-                    let age = date.Year - birthYear
-                    sprintf "%s (%i)" n age
-            name, date)
-        |> Seq.where(fun (_, date) -> date >= startDate && date < endDate)
-        |> Seq.map (fun (name, date) ->
-            let formattedDate = date.ToString("yyyy-MM-dd")
+    let tasks = seq {
+        yield
             sprintf
-                "- %s @due(%s 20:00) @defer(%s) @tags(Anywhere)"
-                name
-                formattedDate
-                formattedDate)
+                "- Script-generated events from %s to %s @autodone(true)"
+                (startDate.ToString("yyyy-MM-dd"))
+                (endDate.ToString("yyyy-MM-dd"))
+        yield!
+            complete
+            |> Seq.map (fun (n, m, d, y) ->
+                let date = DateTime(currentTime.Year, m, d) |> getFutureDate
+                let name =
+                    match y with
+                    | None -> n
+                    | Some birthYear ->
+                        let age = date.Year - birthYear
+                        sprintf "%s (%i)" n age
+                name, date)
+            |> Seq.where(fun (_, date) -> date >= startDate && date < endDate)
+            |> Seq.map (fun (name, date) ->
+                let formattedDate = date.ToString("yyyy-MM-dd")
+                sprintf
+                    "    - %s @due(%s 20:00) @defer(%s) @tags(Anywhere)"
+                    name
+                    formattedDate
+                    formattedDate)
+    }
 
     return tasks, state
 }
