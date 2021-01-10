@@ -1,4 +1,3 @@
-@echo off
-
-dotnet restore dotnet-fake.csproj
+dotnet tool restore
+dotnet paket restore
 dotnet fake run build.fsx %*

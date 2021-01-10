@@ -10,5 +10,6 @@
     <Compile Include="Operations.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
+  <Import Project="..\..\packages\Milekic.YoLo\SetVersion.targets" />
   <Import Project="..\..\.paket\Paket.Restore.targets" />
 </Project>

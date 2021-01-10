@@ -1,12 +1,22 @@
+image: Visual Studio 2019
 init:
   - git config --global core.autocrlf input
 build_script:
-  - cmd: build.cmd -t appveyor
-test: off
-version: 1.{build}
+  - cmd: build.cmd -t AppVeyor -p 4
+install:
+  - ps: Invoke-WebRequest -Uri 'https://dot.net/v1/dotnet-install.ps1' -UseBasicParsing -OutFile "$env:temp\dotnet-install.ps1"
+  - ps: '& $env:temp\dotnet-install.ps1 -Architecture x64 -Version 5.0.101 -InstallDir "$env:ProgramFiles\dotnet"'
+skip_tags: true
 branches:
   only:
-    - master
+  - release
 artifacts:
-  - path: publish.zip
-    name: publish
+  - path: publish\*.zip
+  - path: publish\*.nupkg
+nuget:
+  project_feed: true
+environment:
+  GitHubToken:
+    secure: Eymchtm/ooRHPQDIZ99Uyl6cjSHSJ8bl0saXVbO1BhAT+jDD1s/K87WsZvSP2Qgm
+  NUGET_KEY:
+    secure: krwLpJ7tHgqF2/BOOYFWTSSuf+WYg1gJ3tb/p1Kfn0lB23YRKOQs56ei0n1DgnQM
