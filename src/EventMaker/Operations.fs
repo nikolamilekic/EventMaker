@@ -1,5 +1,5 @@
 
-module EventMaker.Functions
+module EventMaker.Operations
 
 open System
 open System.Text
@@ -12,7 +12,6 @@ open MailKit.Net.Smtp
 open MailKit.Search
 open MimeKit
 
-open FSharp.Data
 open Milekic.YoLo
 
 type Config = {

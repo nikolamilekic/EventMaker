@@ -1,4 +1,7 @@
-FSharp.Data
+FSharp.Core
 Milekic.YoLo
 MailKit
 GitInfo
+Argu
+FParsec
+FSharpPlus
