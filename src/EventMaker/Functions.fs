@@ -6,14 +6,6 @@ open System.Text
 open System.IO
 open System.Globalization
 open System.Reflection
-open Microsoft.Azure.WebJobs
-open Microsoft.Extensions.Configuration
-open Microsoft.WindowsAzure.Storage.Blob
-open Microsoft.Azure.WebJobs.Extensions.Http
-open Microsoft.AspNetCore.Http
-open Microsoft.Azure.WebJobs.Hosting
-open Microsoft.Azure.WebJobs.Host.Config
-open Microsoft.Azure.WebJobs.Description
 open MailKit
 open MailKit.Net.Imap
 open MailKit.Net.Smtp
@@ -24,8 +16,6 @@ open FSharp.Data
 open Milekic.YoLo
 
 type Config = {
-    FacebookPath : string
-    GoogleAccessTokenRequest : HttpRequestBody
     SmtpServer : string * int
     ImapServer : string * int
     EmailCredentials : string * string
@@ -33,144 +23,6 @@ type Config = {
     ToNameAndAddress : string * string
     Subject : string
 }
-
-[<AttributeUsage(AttributeTargets.Parameter, AllowMultiple = true)>]
-[<Binding>]
-type ConfigAttribute() = inherit Attribute()
-
-type ConfigProvider(configuration : IConfiguration) =
-    let config = {
-        FacebookPath = configuration.["FacebookPath"]
-        GoogleAccessTokenRequest =
-            [
-                "client_secret", configuration.["GoogleClientSecret"]
-                "grant_type", "refresh_token"
-                "refresh_token", configuration.["GoogleRefreshToken"]
-                "client_id", configuration.["GoogleClientId"]
-            ] :> seq<_>
-            |> HttpRequestBody.FormValues
-        SmtpServer =
-            configuration.["SmtpServerAddress"],
-            configuration.["SmtpServerPort"] |> int
-        ImapServer =
-            configuration.["ImapServerAddress"],
-            configuration.["ImapServerPort"] |> int
-        EmailCredentials =
-            configuration.["EmailUsername"],
-            configuration.["EmailPassword"]
-        ToNameAndAddress =
-            configuration.["ToName"],
-            configuration.["ToAddress"]
-        FromName = configuration.["FromName"]
-        Subject = configuration.["Subject"]
-    }
-    interface IExtensionConfigProvider with
-        member __.Initialize context =
-            context
-                .AddBindingRule<ConfigAttribute>()
-                .BindToInput(fun _ -> config)
-            |> ignore
-
-type Startup() =
-    interface IWebJobsStartup with
-        member __.Configure builder =
-            builder.AddExtension<ConfigProvider>() |> ignore
-
-[<assembly: WebJobsStartup(typedefof<Startup>)>]
-do ()
-
-[<Literal>]
-let ContactsPath = """PeopleList.json"""
-let userAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_10_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/39.0.2171.95 Safari/537.36"
-
-type GoogleAccessToken = JsonProvider<"""{
-  "access_token": "ya29.Gls4BnIjINLP7XSfOOSxFc2JPjnxQPTKyMB01lfViP9dnGXGjLUbrjbBzx0lSzRYdkBPKqQXtIuul2PxW5L4aS6GUjQA1PvuNp88ANt-Aw3C5VGW_m1Ou3i6gvOK",
-  "scope": "https://www.googleapis.com/auth/contacts.readonly",
-  "expires_in": 3600,
-  "token_type": "Bearer"
-}""">
-
-let getGoogleHeaders config = async {
-    let! accessTokenResponse =
-        Http.AsyncRequestString (
-            "https://www.googleapis.com/oauth2/v4/token",
-            body = config.GoogleAccessTokenRequest,
-            httpMethod = "POST"
-        )
-    return
-        accessTokenResponse
-        |> GoogleAccessToken.Parse
-        |> fun t -> t.AccessToken
-        |> sprintf "Bearer %A"
-        |> fun x -> Seq.singleton ("Authorization", x)
-}
-
-type Contacts = JsonProvider<ContactsPath>
-
-let getEventsFromContacts googleHeaders = async {
-    let getYear = function | 1604 -> None | y -> Some y
-
-    let! rawContacts =
-        Http.AsyncRequestString(
-            "https://people.googleapis.com/v1/people/me/connections?personFields=names,birthdays,events&pageSize=2000",
-            headers = googleHeaders
-        )
-    return
-        rawContacts
-        |> Contacts.Parse
-        |> fun r -> r.Connections
-        |> Seq.where (fun c -> c.Names |> Seq.isEmpty |> not)
-        |> Seq.collect (fun c -> seq {
-            let name = c.Names |> Seq.head |> fun n -> n.DisplayName
-
-            yield!
-                c.Birthdays
-                |> Seq.map (fun b ->
-                    let eventName = sprintf "%s's Birthday" name
-                    let year = b.Date.Year |> Option.bind getYear
-                    eventName, b.Date.Month, b.Date.Day, year)
-            yield!
-                c.Events
-                |> Seq.map (fun e ->
-                    let eventName = sprintf "%s's %s" name e.FormattedType
-                    let year = e.Date.Year |> Option.bind getYear
-                    eventName, e.Date.Month, e.Date.Day, year)
-        })
-}
-
-let getEventsFromFacebook facebookPath = async {
-    let folder (items, name, date) (input : string) =
-        let split = input.Split(':')
-        if split.Length = 0 then (items, name, date) else
-        let command = split |> Seq.head
-        let args = split |> Array.skip 1 |> fun args -> String.Join(":", args)
-        match command, args with
-        | "BEGIN", "VEVENT" -> items, None, None
-        | "DTSTART", start -> items, name, Some start
-        | "SUMMARY", name -> items, Some name, date
-        | "END", "VEVENT" ->
-            match name, date with
-            | Some n, Some d ->
-                let n = n.Replace("birthday", "Birthday")
-                let d = DateTime.ParseExact(d, "yyyyMMdd", CultureInfo.InvariantCulture)
-                (n, d.Month, d.Day, Option<int>.None) :: items, None, None
-            | _ -> items, None, None
-        | _ -> (items, name, date)
-
-    let! rawIcs =
-        Http
-            .AsyncRequestString(
-                facebookPath,
-                headers = [ "User-Agent", userAgent ])
-    let ics = rawIcs.Split([|"\r\n"|], StringSplitOptions.RemoveEmptyEntries)
-
-    let items, _, _ =
-        ics
-        |> Seq.fold folder ([], None, None)
-
-    return items |> Seq.ofList
-}
-
 let getEventsFromPrevious (raw : string) =
     raw.Split("\n", StringSplitOptions.RemoveEmptyEntries)
     |> Seq.map (fun l ->
@@ -191,22 +43,11 @@ let getFutureDate (currentTime : DateTime) date =
 let run config previous (startDate : DateTime) (endDate : DateTime) = async {
     let currentTime = DateTime.Now
     let getFutureDate = getFutureDate currentTime
-    let! facebookRetriever =
-        getEventsFromFacebook config.FacebookPath |> Async.StartChild
-    let! googleRetriever =
-        async {
-            let! googleHeaders = getGoogleHeaders config
-            return! getEventsFromContacts googleHeaders
-        }
-        |> Async.StartChild
 
-    let! fromFacebook = facebookRetriever
-    let! fromContacts = googleRetriever
     let previous = getEventsFromPrevious previous
 
     let complete =
-        [ fromContacts; fromFacebook; previous ]
-        |> Seq.concat
+        previous
         |> Seq.groupBy (fun (n, m, d, _) -> n, m, d)
         |> Seq.map (fun (_, g) -> g |> Seq.sort |> Seq.last)
         |> Seq.sortBy (fun (_, m, d, _) -> m, d)
@@ -250,7 +91,7 @@ let run config previous (startDate : DateTime) (endDate : DateTime) = async {
     return tasks, state
 }
 
-let sendTasks config previous (nextState : CloudBlockBlob) = async {
+let sendTasks config previous = async {
     let startDate, endDate =
         let currentTime = DateTime.Now
         let currentYearStart =
@@ -263,7 +104,6 @@ let sendTasks config previous (nextState : CloudBlockBlob) = async {
         else currentYearStart, currentYearEnd
 
     let! tasks, state = run config previous startDate endDate
-    do! nextState.UploadTextAsync(state) |> Async.AwaitTask
     let tasks = String.Join(Environment.NewLine, tasks)
 
     if tasks = "" then () else
@@ -312,32 +152,3 @@ let sendTasks config previous (nextState : CloudBlockBlob) = async {
         return ()
     }
 }
-
-[<FunctionName("SendTasks")>]
-let sendTasksImmediately
-    (
-        [<HttpTrigger(AuthorizationLevel.Function, "get")>]
-            (request : HttpRequest),
-        [<Config>] config,
-        [<Blob("events/Events.txt", FileAccess.Read)>] previous,
-        [<Blob("events/Events.txt", FileAccess.Write)>] nextState
-    ) =
-    sendTasks config previous nextState |> Async.StartAsTask
-
-[<FunctionName("SendTasksOnSchedule")>]
-let sendTasksOnSchedule
-    (
-        [<TimerTrigger("0 0 0 14 * *")>] (timerInfo : TimerInfo),
-        [<Config>] config,
-        [<Blob("events/Events.txt", FileAccess.Read)>] previous,
-        [<Blob("events/Events.txt", FileAccess.Write)>] nextState
-    ) =
-    sendTasks config previous nextState |> Async.StartAsTask
-
-[<FunctionName("GetVersion")>]
-let getVersion
-    (
-        [<HttpTrigger(AuthorizationLevel.Function, "get")>]
-            (request : HttpRequest)
-    ) =
-    Assembly.GetExecutingAssembly().GetName().Version.ToString()
