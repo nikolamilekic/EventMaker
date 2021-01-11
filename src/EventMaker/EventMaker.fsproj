@@ -7,7 +7,8 @@
     <None Include="PeopleList.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
-    <Compile Include="Operations.fs" />
+    <Compile Include="Data.fs" />
+    <Compile Include="EventFile.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
   <Import Project="..\..\packages\Milekic.YoLo\SetVersion.targets" />
