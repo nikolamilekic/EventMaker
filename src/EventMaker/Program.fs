@@ -14,6 +14,7 @@ open EventInstance
 [<NoComparison; NoEquality>]
 type Argument =
     | [<ExactlyOnce>] EventsFile of string
+    | [<NoAppSettings; Unique>] ICloudContactsFile of string
     | ExtraText of string
     | DueTime of string
     | [<NoAppSettings>] From of string
@@ -57,6 +58,7 @@ let main argv =
 
         let eventsFilePath = arguments.GetResult EventsFile
         let rawEvents = File.ReadAllText(eventsFilePath)
+        let iCloudFile = arguments.TryGetResult ICloudContactsFile
         let from =
             arguments.TryPostProcessResult (From, DateTime.Parse)
             |> Option.defaultValue (DateTime.Now)
@@ -67,7 +69,14 @@ let main argv =
         let dueTime = arguments.GetResult(DueTime, "23:59")
 
         let result = monad.strict {
-            let! events = EventFile.parseEvents rawEvents
+            let! eventFileEvents = EventFile.parseEvents rawEvents
+            let! iCloudEvents =
+                iCloudFile
+                |>> (File.ReadAllText >> ICloudVcfFile.parseEvents)
+                |> Option.defaultValue (Ok [])
+            let events =
+                [ eventFileEvents; iCloudEvents ]
+                |> Seq.concat |> Seq.distinct |> Seq.toList
             let entries =
                 events
                 |> Seq.bind (expand from until)
@@ -86,9 +95,6 @@ let main argv =
         | Error x -> printfn $"ERROR: {x}"
         | Ok (entries, events) ->
             printfn $"{entries}"
-            File.Delete($"{eventsFilePath}.orig")
-            File.Move(eventsFilePath, $"{eventsFilePath}.orig") |> ignore
-
             let newEventFile =
                 events
                 |> Seq.sortBy (fun e -> e^._month, e^._day)
