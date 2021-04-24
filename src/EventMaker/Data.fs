@@ -61,12 +61,13 @@ module EventInstance =
         inner first
         |> Seq.skipWhile (fun x -> x^._date < startDate)
         |> Seq.takeWhile (fun x -> x^._date <= endDate)
+    let toTaskPaperDate (d : DateTime) = d.ToString("yyyy-MM-dd")
     let toTaskPaper dueTime extraText x =
         let contact = x^._contactName
         let eventName = x^._eventName
         let startYear = x^._startYear
         let year = x^._year
-        let date = x^._date |> fun x -> x.ToString("yyyy-MM-dd")
+        let date = x^._date |> toTaskPaperDate
         let taskName =
             match startYear with
             | None -> $"{contact}'s {eventName}"

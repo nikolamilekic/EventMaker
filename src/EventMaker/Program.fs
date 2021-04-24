@@ -83,12 +83,17 @@ let main argv =
                 |> Seq.sortBy (view _date)
                 |>> toTaskPaper dueTime extraText
                 |>> fun x -> $"    {x}"
+            let fromTp = toTaskPaperDate from
+            let untilTp = toTaskPaperDate until
             let head =
-                sprintf
-                    "- Script-generated events from %s to %s @autodone(true)\n"
-                    (from.ToString("yyyy-MM-dd"))
-                    (until.ToString("yyyy-MM-dd"))
-            return (head + (String.concat "\n" entries)), events
+                $"- Script-generated events from {fromTp} to {untilTp} @autodone(true)\n"
+            let tail =
+                let extraText = if extraText = "" then "" else $" {extraText}"
+                let defer =
+                    until.Subtract(TimeSpan.FromDays 14.0)
+                    |> toTaskPaperDate
+                $"- Add next events from {untilTp} @defer({defer} 00:00) @due({untilTp} 00:00){extraText}"
+            return (head + (String.concat "\n" entries) + "\n" + tail), events
         }
 
         match result with
